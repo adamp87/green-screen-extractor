@@ -34,13 +34,17 @@ def extract_video(
         src_path: str,
         dst_path: str,
         detector: Any,
-        skip_frame_count: int,
-        frame_prefix_idx: int
+        args: Any
 ) -> None:
     # init opencv input
     cap = cv2.VideoCapture(src_path)
     frame_start = 0
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # params
+    box_extension = args.box_extension
+    skip_frame_count = args.skip_frame_count
+    video_prefix_str = args.video_prefix_str
 
     for frame_idx in tqdm(range(frame_start, frame_count, skip_frame_count)):
         # read frame
@@ -60,14 +64,14 @@ def extract_video(
             box_size = torch.div(box_size, 2, rounding_mode='floor')
             if box_size < 16:
                 continue  # skip small bbox
-            x_min = det[0] - box_size - int(box_size * 0.2)
-            y_min = det[1] - box_size - int(box_size * 0.2)
-            x_max = det[0] + box_size + int(box_size * 0.2)
-            y_max = det[1] + box_size + int(box_size * 0.2)
+            x_min = det[0] - box_size - int(box_size * box_extension)
+            y_min = det[1] - box_size - int(box_size * box_extension)
+            x_max = det[0] + box_size + int(box_size * box_extension)
+            y_max = det[1] + box_size + int(box_size * box_extension)
             class_name = results.names[det[5]]
 
             # get detection roi and write result
-            filename = f"{frame_prefix_idx:0>4}_{frame_idx:0>4}_{i}.png"
+            filename = f"{video_prefix_str}_{frame_idx:0>5}_{i:0>2}.png"
             roi = bgr_img[y_min:y_max, x_min:x_max, :]
             if roi.size == 0:
                 continue
@@ -106,8 +110,9 @@ def main() -> None:
     parser.add_argument('--dst_path', type=str, help='destination, folder', required=True)
     parser.add_argument('--ckpt_path', type=str, help='crowdhuman_yolov5m.pt path', required=True)
     parser.add_argument('--no_gpu', action='store_false', help='disable inference on gpu')
+    parser.add_argument('--box_extension', type=float, default=0.0, help='increase bbox relative to current size')
     parser.add_argument('--skip_frame_count', type=int, default=5, help='skip frames in input video')
-    parser.add_argument('--video_prefix_int', type=int, default=0, help='prefix for extracted single video')
+    parser.add_argument('--video_prefix_str', type=str, default="", help='prefix for extracted single video')
     args = parser.parse_args()
 
     if not os.path.exists(args.ckpt_path):
@@ -125,17 +130,16 @@ def main() -> None:
 
     if os.path.isdir(args.src_path):
         vid_filenames = os.listdir(args.src_path)
+        vid_filenames = [x for x in vid_filenames if not os.path.isdir(os.path.join(args.src_path, x))]
         for idx, vid_filename in tqdm(enumerate(vid_filenames)):
-            args.video_prefix_int = int(os.path.splitext(vid_filename)[0])
-            if args.video_prefix_int == 0:
-                args.video_prefix_int = idx  # video file name is not a number, use enumerate
+            args.video_prefix_str = os.path.splitext(vid_filename)[0]
             vid_path = os.path.join(args.src_path, vid_filename)
             try:
-                extract_video(vid_path, args.dst_path, detector, args.skip_frame_count, args.video_prefix_int)
+                extract_video(vid_path, args.dst_path, detector, args)
             except RuntimeError as e:
                 print("Failed to extract {0}: {1}".format(vid_filename, str(e)))
     else:
-        extract_video(args.src_path, args.dst_path, detector, args.skip_frame_count, args.video_prefix_int)
+        extract_video(args.src_path, args.dst_path, detector, args)
 
 
 if __name__ == "__main__":
